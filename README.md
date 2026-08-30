@@ -14,11 +14,6 @@
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/Fabito02?style=flat&logo=githubsponsors&logoColor=white&color=ea4aaa)](https://github.com/sponsors/Fabito02)
 
 <br>
-
-<img width="2560" height="1440" src="https://github.com/user-attachments/assets/c695c288-5fe6-4dea-b59f-ebd8129702d6" />
-
-<br>
-<br>
 </div>
 
 ## Notes:
