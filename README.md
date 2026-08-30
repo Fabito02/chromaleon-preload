@@ -6,7 +6,7 @@
 
 <br><br>
 
-### Expand support for ChromaLeon accent colors.
+### Expand ChromaLeon color compatibility.
 
 [![GitHub License](https://img.shields.io/github/license/fabito02/chromaleon-preload?style=flat&logo=gplv3&logoColor=white&color=50fa7b)](https://github.com/Fabito02/chromaleon-preload/blob/main/LICENSE)
 [![Stars](https://img.shields.io/github/stars/Fabito02/chromaleon-preload?style=flat&logo=github&logoColor=white&color=f1fa8c)](https://github.com/Fabito02/chromaleon-preload/stargazers)
