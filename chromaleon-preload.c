@@ -1,105 +1,84 @@
 #define _GNU_SOURCE
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <dlfcn.h>
-#include <glib.h>
 #include <gio/gio.h>
 
 #define APPEARANCE_NS     "org.freedesktop.appearance"
 #define ACCENT_KEY        "accent-color"
+#define TARGET_KEY        "target-apps"
 #define PORTAL_IFACE      "org.freedesktop.portal.Settings"
 #define EXTENSION_UUID    "user-accent-colors@fabito02"
 #define CHROMALEON_SCHEMA "org.gnome.shell.extensions.chromaleon"
-#define CHROMALEON_PATH   "/org/gnome/shell/extensions/chromaleon/"
 
-typedef struct {
-    double r, g, b;
-} AccentColor;
+typedef struct { double r, g, b; } AccentColor;
 
-static gboolean parse_hex_color(const char *hex, AccentColor *color) {
-    if (!hex) return FALSE;
-    if (*hex == '#') hex++;
+static GSettings *get_settings(void) {
+    gchar *dir = g_build_filename(g_get_user_data_dir(), "gnome-shell", "extensions", EXTENSION_UUID, "schemas", NULL);
+    GSettingsSchemaSource *src = g_settings_schema_source_new_from_directory(dir, NULL, TRUE, NULL);
+    g_free(dir);
+    if (!src) return NULL;
 
-    int ri, gi, bi;
-    if (g_ascii_strncasecmp(hex, "0x", 2) == 0) hex += 2;
-
-    if (sscanf(hex, "%02x%02x%02x", &ri, &gi, &bi) == 3) {
-        color->r = ri / 255.0;
-        color->g = gi / 255.0;
-        color->b = bi / 255.0;
-        return TRUE;
-    }
-    return FALSE;
-}
-
-static GVariant *build_accent_variant(const AccentColor *color) {
-    return g_variant_new_variant(g_variant_new("(ddd)", color->r, color->g, color->b));
-}
-
-/* Settings.Read returns (v), requiring double-variant encapsulation: (v -> v -> (ddd)) */
-static GVariant *build_read_response(const AccentColor *color) {
-    GVariant *var = g_variant_new_variant(build_accent_variant(color));
-    return g_variant_new_tuple(&var, 1);
-}
-
-static GSettings *get_chromaleon_settings(void) {
-    GSettingsSchemaSource *default_source = g_settings_schema_source_get_default();
-    GSettingsSchema *schema = NULL;
-
-    if (default_source) {
-        schema = g_settings_schema_source_lookup(default_source, CHROMALEON_SCHEMA, TRUE);
-    }
-
-    if (!schema) {
-        const gchar *user_dir = g_get_user_data_dir();
-        const gchar *const *sys_dirs = g_get_system_data_dirs();
-        guint total_dirs = sys_dirs ? g_strv_length((gchar **)sys_dirs) + 1 : 1;
-
-        for (guint i = 0; i < total_dirs && !schema; i++) {
-            const gchar *base = (i == 0) ? user_dir : sys_dirs[i - 1];
-            gchar *path = g_build_filename(base, "gnome-shell", "extensions", EXTENSION_UUID, "schemas", NULL);
-
-            if (g_file_test(path, G_FILE_TEST_IS_DIR)) {
-                GSettingsSchemaSource *src = g_settings_schema_source_new_from_directory(path, default_source, TRUE, NULL);
-                if (src) {
-                    schema = g_settings_schema_source_lookup(src, CHROMALEON_SCHEMA, TRUE);
-                    g_settings_schema_source_unref(src);
-                }
-            }
-            g_free(path);
-        }
-    }
-
+    GSettingsSchema *schema = g_settings_schema_source_lookup(src, CHROMALEON_SCHEMA, TRUE);
+    g_settings_schema_source_unref(src);
     if (!schema) return NULL;
 
-    const gchar *path = g_settings_schema_get_path(schema);
-    GSettings *settings = g_settings_new_full(schema, NULL, path ? NULL : CHROMALEON_PATH);
+    GSettings *settings = g_settings_new_full(schema, NULL, NULL);
     g_settings_schema_unref(schema);
-
     return settings;
 }
 
-static gboolean get_chromaleon_accent_color(AccentColor *color) {
-    const char *env = g_getenv("CHROMALEON_ACCENT");
-    if (env && parse_hex_color(env, color)) {
-        return TRUE;
-    }
+static gboolean should_hook(void) {
+    static int is_target = -1;
+    if (is_target != -1) return is_target;
 
-    GSettings *settings = get_chromaleon_settings();
-    if (!settings) return FALSE;
+    if (!program_invocation_short_name) return (is_target = 0);
 
-    gchar *hex_str = g_settings_get_string(settings, ACCENT_KEY);
+    GSettings *settings = get_settings();
+    if (!settings) return (is_target = 0);
+
+    gchar **apps = g_settings_get_strv(settings, TARGET_KEY);
     g_object_unref(settings);
 
-    gboolean valid = parse_hex_color(hex_str, color);
-    g_free(hex_str);
+    is_target = (apps && g_strv_contains((const gchar *const *)apps, program_invocation_short_name)) ? 1 : 0;
+    g_strfreev(apps);
+
+    return is_target;
+}
+
+static gboolean get_accent_color(AccentColor *color) {
+    const char *env = g_getenv("CHROMALEON_ACCENT");
+    gchar *hex = NULL;
+
+    if (!env) {
+        GSettings *settings = get_settings();
+        if (!settings) return FALSE;
+        hex = g_settings_get_string(settings, ACCENT_KEY);
+        g_object_unref(settings);
+    }
+
+    const char *raw = env ? env : hex;
+    if (!raw) return FALSE;
+
+    if (*raw == '#') raw++;
+    else if (g_ascii_strncasecmp(raw, "0x", 2) == 0) raw += 2;
+
+    unsigned int r, g, b;
+    gboolean valid = (sscanf(raw, "%02x%02x%02x", &r, &g, &b) == 3);
+    if (valid) {
+        color->r = r / 255.0;
+        color->g = g / 255.0;
+        color->b = b / 255.0;
+    }
+
+    g_free(hex);
     return valid;
 }
 
-static GVariant *modify_appearance_dict(GVariant *dict, const AccentColor *color) {
-    GVariantBuilder builder;
-    g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sv}"));
-    gboolean injected = FALSE;
+static GVariant *patch_appearance_dict(GVariant *dict, const AccentColor *c) {
+    GVariantBuilder b;
+    g_variant_builder_init(&b, G_VARIANT_TYPE("a{sv}"));
 
     if (dict) {
         GVariantIter iter;
@@ -107,30 +86,23 @@ static GVariant *modify_appearance_dict(GVariant *dict, const AccentColor *color
         const gchar *key;
         GVariant *val;
 
-        while (g_variant_iter_next(&iter, "{&s@v}", &key, &val)) {
-            if (g_strcmp0(key, ACCENT_KEY) == 0) {
-                g_variant_builder_add(&builder, "{s@v}", key, build_accent_variant(color));
-                injected = TRUE;
-            } else {
-                g_variant_builder_add(&builder, "{s@v}", key, val);
-            }
+        while (g_variant_iter_next(&iter, "{&sv}", &key, &val)) {
+            if (g_strcmp0(key, ACCENT_KEY) != 0)
+                g_variant_builder_add(&b, "{sv}", key, val);
             g_variant_unref(val);
         }
     }
 
-    if (!injected) {
-        g_variant_builder_add(&builder, "{s@v}", ACCENT_KEY, build_accent_variant(color));
-    }
-
-    return g_variant_builder_end(&builder);
+    g_variant_builder_add(&b, "{sv}", ACCENT_KEY, g_variant_new("(ddd)", c->r, c->g, c->b));
+    return g_variant_builder_end(&b);
 }
 
-static GVariant *modify_read_all_response(GVariant *original_res, const AccentColor *color) {
-    if (!original_res) return NULL;
+static GVariant *patch_read_all(GVariant *original, const AccentColor *c) {
+    if (!original) return NULL;
 
-    GVariant *dict = g_variant_get_child_value(original_res, 0);
-    GVariantBuilder root_builder;
-    g_variant_builder_init(&root_builder, G_VARIANT_TYPE("a{sa{sv}}"));
+    GVariant *dict = g_variant_get_child_value(original, 0);
+    GVariantBuilder b;
+    g_variant_builder_init(&b, G_VARIANT_TYPE("a{sa{sv}}"));
 
     GVariantIter iter;
     g_variant_iter_init(&iter, dict);
@@ -141,85 +113,63 @@ static GVariant *modify_read_all_response(GVariant *original_res, const AccentCo
     while (g_variant_iter_next(&iter, "{&s@a{sv}}", &ns, &settings)) {
         if (g_strcmp0(ns, APPEARANCE_NS) == 0) {
             handled = TRUE;
-            g_variant_builder_add(&root_builder, "{s@a{sv}}", ns, modify_appearance_dict(settings, color));
+            g_variant_builder_add(&b, "{s@a{sv}}", ns, patch_appearance_dict(settings, c));
         } else {
-            g_variant_builder_add(&root_builder, "{s@a{sv}}", ns, settings);
+            g_variant_builder_add(&b, "{s@a{sv}}", ns, settings);
         }
         g_variant_unref(settings);
     }
 
-    if (!handled) {
-        g_variant_builder_add(&root_builder, "{s@a{sv}}", APPEARANCE_NS, modify_appearance_dict(NULL, color));
-    }
+    if (!handled)
+        g_variant_builder_add(&b, "{s@a{sv}}", APPEARANCE_NS, patch_appearance_dict(NULL, c));
 
     g_variant_unref(dict);
-    g_variant_unref(original_res);
+    g_variant_unref(original);
 
-    GVariant *res = g_variant_builder_end(&root_builder);
+    GVariant *res = g_variant_builder_end(&b);
     return g_variant_new_tuple(&res, 1);
 }
 
 GVariant *g_dbus_proxy_call_sync(
-    GDBusProxy *proxy,
-    const gchar *method_name,
-    GVariant *parameters,
-    GDBusCallFlags flags,
-    gint timeout_msec,
-    GCancellable *cancellable,
-    GError **error
+    GDBusProxy *proxy, const gchar *method, GVariant *params,
+    GDBusCallFlags flags, gint timeout, GCancellable *canc, GError **err
 ) {
-    static GVariant *(*orig_func)(GDBusProxy *, const gchar *, GVariant *, GDBusCallFlags, gint, GCancellable *, GError **) = NULL;
-    if (!orig_func) orig_func = dlsym(RTLD_NEXT, "g_dbus_proxy_call_sync");
+    static GVariant *(*orig)(GDBusProxy *, const gchar *, GVariant *, GDBusCallFlags, gint, GCancellable *, GError **) = NULL;
+    if (!orig) orig = dlsym(RTLD_NEXT, "g_dbus_proxy_call_sync");
 
-    gboolean is_read = (g_strcmp0(method_name, "Read") == 0);
-    gboolean is_read_all = (g_strcmp0(method_name, "ReadAll") == 0);
+    if (!should_hook()) return orig(proxy, method, params, flags, timeout, canc, err);
 
-    if (!is_read && !is_read_all) {
-        return orig_func(proxy, method_name, parameters, flags, timeout_msec, cancellable, error);
-    }
+    gboolean is_read = (g_strcmp0(method, "Read") == 0);
+    gboolean is_read_all = (g_strcmp0(method, "ReadAll") == 0);
 
     AccentColor color;
-    if (!get_chromaleon_accent_color(&color)) {
-        return orig_func(proxy, method_name, parameters, flags, timeout_msec, cancellable, error);
-    }
-
-    if (is_read && parameters) {
-        const gchar *ns = NULL, *key = NULL;
-        g_variant_get(parameters, "(&s&s)", &ns, &key);
-
-        if (g_strcmp0(ns, APPEARANCE_NS) == 0 && g_strcmp0(key, ACCENT_KEY) == 0) {
-            return build_read_response(&color);
+    if ((is_read || is_read_all) && get_accent_color(&color)) {
+        if (is_read && params) {
+            const gchar *ns = NULL, *key = NULL;
+            g_variant_get(params, "(&s&s)", &ns, &key);
+            if (g_strcmp0(ns, APPEARANCE_NS) == 0 && g_strcmp0(key, ACCENT_KEY) == 0)
+                return g_variant_new("(v)", g_variant_new("(ddd)", color.r, color.g, color.b));
         }
+
+        GVariant *res = orig(proxy, method, params, flags, timeout, canc, err);
+        return (is_read_all && res && (!err || !*err)) ? patch_read_all(res, &color) : res;
     }
 
-    GVariant *res = orig_func(proxy, method_name, parameters, flags, timeout_msec, cancellable, error);
-
-    if (is_read_all && res && (!error || !*error)) {
-        return modify_read_all_response(res, &color);
-    }
-
-    return res;
+    return orig(proxy, method, params, flags, timeout, canc, err);
 }
 
-GVariant *g_dbus_proxy_call_finish(
-    GDBusProxy *proxy,
-    GAsyncResult *res,
-    GError **error
-) {
-    static GVariant *(*orig_func)(GDBusProxy *, GAsyncResult *, GError **) = NULL;
-    if (!orig_func) orig_func = dlsym(RTLD_NEXT, "g_dbus_proxy_call_finish");
+GVariant *g_dbus_proxy_call_finish(GDBusProxy *proxy, GAsyncResult *res, GError **err) {
+    static GVariant *(*orig)(GDBusProxy *, GAsyncResult *, GError **) = NULL;
+    if (!orig) orig = dlsym(RTLD_NEXT, "g_dbus_proxy_call_finish");
 
-    GVariant *result = orig_func(proxy, res, error);
-    if (!result || (error && *error)) return result;
+    GVariant *result = orig(proxy, res, err);
+    if (!result || (err && *err) || !should_hook()) return result;
 
-    const gchar *iface = g_dbus_proxy_get_interface_name(proxy);
-    if (g_strcmp0(iface, PORTAL_IFACE) != 0) return result;
+    if (g_strcmp0(g_dbus_proxy_get_interface_name(proxy), PORTAL_IFACE) == 0 &&
+        g_variant_type_equal(g_variant_get_type(result), G_VARIANT_TYPE("(a{sa{sv}})"))) {
+        AccentColor color;
+        if (get_accent_color(&color)) return patch_read_all(result, &color);
+    }
 
-    const GVariantType *type = g_variant_get_type(result);
-    if (!g_variant_type_equal(type, G_VARIANT_TYPE("(a{sa{sv}})"))) return result;
-
-    AccentColor color;
-    if (!get_chromaleon_accent_color(&color)) return result;
-
-    return modify_read_all_response(result, &color);
+    return result;
 }
