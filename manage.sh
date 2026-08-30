@@ -55,11 +55,15 @@ if [ "$OPT_INSTALL" = true ]; then
     if [ -f "chromaleon-preload.c" ]; then
         echo -e "${GREEN}-> chromaleon-preload.c found. Compiling...${NC}"
         
-        gcc -O2 -fPIC -shared chromaleon-preload.c -o libchromaleon.so $(pkg-config --cflags --libs gio-2.0)
-        echo -e "${GREEN}-> libchromaleon.so compiled. Installing...${NC}"
-        mkdir -p ~/.local/lib
-        mv libchromaleon.so ~/.local/lib/
-        echo -e "${GREEN}-> libchromaleon.so installed.${NC}"
+        if gcc -O2 -fPIC -shared chromaleon-preload.c -o libchromaleon.so $(pkg-config --cflags --libs gio-2.0); then
+            echo -e "${GREEN}-> libchromaleon.so compiled. Installing...${NC}"
+            mkdir -p ~/.local/lib
+            mv libchromaleon.so ~/.local/lib/
+            echo -e "${GREEN}-> libchromaleon.so installed.${NC}"
+        else
+            echo -e "${RED}-> Compilation failed.${NC}"
+            exit 1
+        fi
     else
         echo -e "${RED}-> chromaleon-preload.c not found. Skipping compilation.${NC}"
     fi
