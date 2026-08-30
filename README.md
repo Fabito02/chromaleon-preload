@@ -8,7 +8,7 @@
 
 ### Expand ChromaLeon color compatibility.
 
-[![GitHub License](https://img.shields.io/github/license/fabito02/chromaleon-preload?style=flat&logo=gplv3&logoColor=white&color=50fa7b)](https://github.com/Fabito02/chromaleon-preload/blob/main/LICENSE)
+[![GitHub License](https://img.shields.io/github/license/Fabito02/chromaleon-preload?style=flat&logo=gplv3&logoColor=white&color=50fa7b)](https://github.com/Fabito02/chromaleon-preload/blob/main/LICENSE)
 [![Stars](https://img.shields.io/github/stars/Fabito02/chromaleon-preload?style=flat&logo=github&logoColor=white&color=f1fa8c)](https://github.com/Fabito02/chromaleon-preload/stargazers)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/Fabito02?style=flat&logo=githubsponsors&logoColor=white&color=ea4aaa)](https://github.com/sponsors/Fabito02)
 
