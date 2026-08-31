@@ -15,7 +15,6 @@
 <br>
 </div>
 
-## Notes:
 > [!WARNING]
 > This is an additional feature for the [ChromaLeon GNOME Shell extension](https://github.com/Fabito02/ChromaLeon). It is in an early stage and may cause bugs.
 
