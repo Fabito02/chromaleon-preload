@@ -69,7 +69,7 @@ if [ "$OPT_INSTALL" = true ]; then
             cat << 'EOF' > "$HOME/.config/environment.d/chromaleon.conf"
 LD_PRELOAD=${HOME}/.local/lib/libchromaleon.so
 EOF
-
+            cp VERSION "$HOME/.config/ChromaLeon/preload_version"
             echo -e "${GREEN}-> ChromaLeon preload library installed and activated successfully!${NC}"
             echo -e "${BLUE}\nSession restart required to apply changes.${NC}"
         else
@@ -89,6 +89,7 @@ if [ "$OPT_UNINSTALL" = true ]; then
     rm -f "$HOME/.local/lib32/libchromaleon.so"
     rm -f "$HOME/.local/lib/libchromaleon.so"
     rm -f "$HOME/.config/environment.d/chromaleon.conf"
+    rm -f "$HOME/.config/ChromaLeon/preload_version"
 
     echo -e "${GREEN}-> ChromaLeon preload uninstalled and environment cleaned.${NC}"
 fi
